@@ -47,3 +47,4 @@ document.getElementById('home3aMode')?.addEventListener('change',updateHomePlan)
 window.addEventListener('bq:savings-updated',renderHome);
 const originalRenderHomeApp=window.render;window.render=function(){originalRenderHomeApp();renderHome()};
 renderHome();
+if(!document.querySelector('script[data-savings-integration]')){const s=document.createElement('script');s.src='savings-integration.js?v=1';s.dataset.savingsIntegration='1';document.body.appendChild(s)}
