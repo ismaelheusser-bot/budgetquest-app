@@ -62,4 +62,28 @@ window.finishSetup=function(){
  localStorage.setItem('bq_household',household);localStorage.setItem('bq_settings',JSON.stringify(settings));localStorage.setItem(KEY,JSON.stringify(plan));localStorage.setItem('bq_setup_done','1');
  document.getElementById('setupWizard').hidden=true;location.reload();
 };
+
+// Budget beginnt am ersten Tag des aktuellen Monats.
+const now=new Date();
+const budgetStart=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+const inCurrentBudget=row=>row&&String(row.date||'')>=budgetStart;
+localStorage.setItem('bq_budget_start',budgetStart);
+
+// Historische Buchungen aus früheren Importen entfernen.
+if(Array.isArray(tx)){
+ const current=tx.filter(inCurrentBudget);
+ if(current.length!==tx.length){tx=current;saveAll();render()}
+}
+
+// Alte Daten dürfen analysiert werden, werden aber nicht als Buchungen übernommen.
+const finishWithDateFilter=window.finishSetup;
+window.finishSetup=function(){
+ if(!manualMode&&setupAnalysis&&Array.isArray(setupAnalysis.rows))setupAnalysis.rows=setupAnalysis.rows.filter(inCurrentBudget);
+ return finishWithDateFilter.apply(this,arguments);
+};
+const importCsvWithDateFilter=window.importCsv;
+window.importCsv=function(){
+ if(Array.isArray(csvRows))csvRows=csvRows.filter(inCurrentBudget);
+ return importCsvWithDateFilter.apply(this,arguments);
+};
 })();
