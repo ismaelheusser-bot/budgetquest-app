@@ -1,5 +1,6 @@
 (()=>{
-const baseParseAmount=window.parseAmount,baseSplit=window.splitCsvLine,baseParseDate=window.parseDate;
+const baseParseAmount=window.parseAmount,baseSplit=window.splitCsvLine;
+const smartDate=v=>{if(!v)return null;let s=String(v).trim();const m=s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})$/);if(m)s=`${m[3].length===2?'20'+m[3]:m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;const d=new Date(s);return isNaN(d)?null:d};
 const rules={
  income:[/oberholzer ag/i,/\blohn\b|gehalt|sal[aä]r|payroll/i,/kinderpraxis uster|ärztefon|arztefon/i,/veterinary surgery consulting/i,/zinsgutschrift|dividende/i],
  saving:[/übertrag auf (mitglieder|geschenk)?sparkonto/i,/dauerauftrag sparkonto darlehen/i,/sparauftrag|einzahlung.*3a|säule 3a/i],
@@ -22,50 +23,12 @@ const categoryRules=[
  ['Kreditkarte (Cembra)',/cembra/i],
  ['Privatzahlungen (P2P)',/zahlung twint/i]
 ];
-function classify(title,internalAmount){
- const s=String(title||'').trim();
- let type='expense',budgetEffect=true,category='Sonstiges',confidence=0.72;
- if(rules.saving.some(r=>r.test(s))){type='saving';budgetEffect=false;category='Sparen / interner Übertrag';confidence=.99}
- else if(rules.transfer.some(r=>r.test(s))){type='transfer';budgetEffect=false;category=/von .*sparkonto|gutschrift/i.test(s)?'Rückübertrag von Sparkonto':'Interner Übertrag';confidence=.98}
- else if(rules.investment.some(r=>r.test(s))){type='investment';budgetEffect=false;category='Edelmetalle / Anlage';confidence=.96}
- else if(rules.income.some(r=>r.test(s))){type='income';budgetEffect=true;category=/oberholzer|lohn|gehalt|sal[aä]r/i.test(s)?'Lohn':'Nebeneinkommen';confidence=.98}
- else if(rules.refund.some(r=>r.test(s))){type='refund';budgetEffect=true;category='Rückerstattung';confidence=.9}
- else if(internalAmount<0){type='income';category=/twint/i.test(s)?'Sonstige Gutschrift':'Einkommen';confidence=.7}
- else {for(const [cat,re] of categoryRules)if(re.test(s)){category=cat;confidence=.9;break}}
- return{type,category,budgetEffect,confidence};
-}
-function normaliseAmount(raw,title,fromDebit=false,fromCredit=false){
- const n=Math.abs(Number(raw));if(!Number.isFinite(n))return NaN;
- if(fromDebit)return n;if(fromCredit)return-n;
- if(/gutschrift|lohn|gehalt|sal[aä]r|zahlungseingang|eingang|rückerstattung|rückvergütung/i.test(title))return-n;
- return Number(raw)<0?n:-n;
-}
+function classify(title,internalAmount){const s=String(title||'').trim();let type='expense',budgetEffect=true,category='Sonstiges',confidence=.72;if(rules.saving.some(r=>r.test(s))){type='saving';budgetEffect=false;category='Sparen / interner Übertrag';confidence=.99}else if(rules.transfer.some(r=>r.test(s))){type='transfer';budgetEffect=false;category=/von .*sparkonto|gutschrift/i.test(s)?'Rückübertrag von Sparkonto':'Interner Übertrag';confidence=.98}else if(rules.investment.some(r=>r.test(s))){type='investment';budgetEffect=false;category='Edelmetalle / Anlage';confidence=.96}else if(rules.income.some(r=>r.test(s))){type='income';category=/oberholzer|lohn|gehalt|sal[aä]r/i.test(s)?'Lohn':'Nebeneinkommen';confidence=.98}else if(rules.refund.some(r=>r.test(s))){type='refund';category='Rückerstattung';confidence=.9}else if(internalAmount<0){type='income';category=/twint/i.test(s)?'Sonstige Gutschrift':'Einkommen';confidence=.7}else{for(const [cat,re] of categoryRules)if(re.test(s)){category=cat;confidence=.9;break}}return{type,category,budgetEffect,confidence}}
+function normaliseAmount(raw,title,debit=false,credit=false){const n=Math.abs(Number(raw));if(!Number.isFinite(n))return NaN;if(debit)return n;if(credit)return-n;if(/gutschrift|lohn|gehalt|sal[aä]r|zahlungseingang|eingang|rückerstattung|rückvergütung/i.test(title))return-n;return Number(raw)<0?n:-n}
 window.classifyBudgetQuestTransaction=classify;
-window.parseCsv=function(text,fileName='Bank.csv'){
- const lines=String(text).replace(/^\uFEFF/,'').split(/\r?\n/).filter(l=>l.trim());if(lines.length<2)return[];
- const candidates=[';','\t',','],sep=candidates.sort((a,b)=>lines[0].split(b).length-lines[0].split(a).length)[0];
- const headers=baseSplit(lines[0],sep).map(h=>h.toLowerCase().trim()),find=ps=>headers.findIndex(h=>ps.some(p=>h.includes(p)));
- const dateI=find(['buchungsdatum','valutadatum','datum','date']),textI=find(['buchungstext','beschreibung','details','mitteilung','empfänger','auftraggeber','merchant','text']),amountI=find(['betrag','amount','umsatz']),debitI=find(['belastung','debit','soll']),creditI=find(['gutschrift','credit','haben']);
- return lines.slice(1).map((line,i)=>{const c=baseSplit(line,sep),title=((textI>=0?c[textI]:'')||c.find((v,j)=>j!==dateI&&/[A-Za-zÄÖÜäöü]{3}/.test(v))||'Bankbuchung').trim();let amount=NaN;
-  const debit=debitI>=0?baseParseAmount(c[debitI]):NaN,credit=creditI>=0?baseParseAmount(c[creditI]):NaN,raw=amountI>=0?baseParseAmount(c[amountI]):NaN;
-  if(Number.isFinite(debit)&&debit!==0)amount=normaliseAmount(debit,title,true,false);else if(Number.isFinite(credit)&&credit!==0)amount=normaliseAmount(credit,title,false,true);else if(Number.isFinite(raw)&&raw!==0)amount=normaliseAmount(raw,title);
-  const d=baseParseDate(dateI>=0?c[dateI]:'');if(!Number.isFinite(amount)||!d)return null;const cl=classify(title,amount);
-  return{title,amount,date:d.toISOString().slice(0,10),cat:cl.category,type:cl.type,budgetEffect:cl.budgetEffect,confidence:cl.confidence,source:'csv',file:fileName,row:i};
- }).filter(Boolean);
-};
-window.analyseRows=function(rows){
- const budgetRows=rows.filter(r=>r.budgetEffect!==false),months=Math.max(1,new Set(rows.map(r=>r.date.slice(0,7))).size;
- const incomes=budgetRows.filter(r=>r.type==='income'||r.type==='refund'),expenses=budgetRows.filter(r=>r.type==='expense');
- const byMonth={};incomes.forEach(r=>byMonth[r.date.slice(0,7)]=(byMonth[r.date.slice(0,7)]||0)+Math.abs(r.amount));
- const vals=Object.values(byMonth),monthlyIncome=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:0;
- const fixedCats=new Set(['Gesundheit / Versicherung','Telekom / Abos / Digital','Steuern / Gemeinde','Kreditkarte (Cembra)']);
- let fixed=expenses.filter(r=>fixedCats.has(r.cat)).reduce((s,r)=>s+Math.abs(r.amount),0)/months;
- const catTotals={};expenses.filter(r=>!fixedCats.has(r.cat)).forEach(r=>catTotals[r.cat]=(catTotals[r.cat]||0)+Math.abs(r.amount)/months);
- const budgets=Object.entries(catTotals).filter(([,v])=>v>=15).sort((a,b)=>b[1]-a[1]).map(([name,v])=>({name,limit:Math.ceil(v/50)*50}));
- const excluded=rows.filter(r=>r.budgetEffect===false),counts=rows.reduce((a,r)=>(a[r.type]=(a[r.type]||0)+1,a),{});
- return{rows,months,monthlyIncome:Math.round(monthlyIncome),fixed:Math.round(fixed),saving:Math.round(excluded.filter(r=>r.type==='saving').reduce((s,r)=>s+Math.abs(r.amount),0)/months),budgets:budgets.length?budgets:defaultBudgets,fixedRows:[],excluded,counts};
-};
-const oldShow=window.showSetupReview;window.showSetupReview=function(){oldShow();const a=setupAnalysis;if(!a)return;const box=document.getElementById('setupCategories');box.insertAdjacentHTML('afterbegin',`<div class="info-note"><strong>Smart Import 2.0</strong><br>${a.counts.income||0} Einnahmen · ${a.counts.expense||0} Ausgaben · ${a.counts.saving||0} Sparbuchungen · ${a.counts.transfer||0} Transfers · ${a.counts.investment||0} Anlagen<br><b>${a.excluded.length} Buchungen</b> werden separat geführt und verzerren das Budget nicht.</div>`)};
+window.parseCsv=function(text,fileName='Bank.csv'){const lines=String(text).replace(/^\uFEFF/,'').split(/\r?\n/).filter(l=>l.trim());if(lines.length<2)return[];const candidates=[';','\t',','],sep=candidates.sort((a,b)=>lines[0].split(b).length-lines[0].split(a).length)[0],headers=baseSplit(lines[0],sep).map(h=>h.toLowerCase().trim()),find=ps=>headers.findIndex(h=>ps.some(p=>h.includes(p)));const dateI=find(['buchungsdatum','valutadatum','datum','date']),textI=find(['buchungstext','beschreibung','details','mitteilung','empfänger','auftraggeber','merchant','text']),amountI=find(['betrag','amount','umsatz']),debitI=find(['belastung','debit','soll']),creditI=find(['gutschrift','credit','haben']);return lines.slice(1).map((line,i)=>{const c=baseSplit(line,sep),title=((textI>=0?c[textI]:'')||c.find((v,j)=>j!==dateI&&/[A-Za-zÄÖÜäöü]{3}/.test(v))||'Bankbuchung').trim();let amount=NaN;const debit=debitI>=0?baseParseAmount(c[debitI]):NaN,credit=creditI>=0?baseParseAmount(c[creditI]):NaN,raw=amountI>=0?baseParseAmount(c[amountI]):NaN;if(Number.isFinite(debit)&&debit!==0)amount=normaliseAmount(debit,title,true,false);else if(Number.isFinite(credit)&&credit!==0)amount=normaliseAmount(credit,title,false,true);else if(Number.isFinite(raw)&&raw!==0)amount=normaliseAmount(raw,title);const d=smartDate(dateI>=0?c[dateI]:'');if(!Number.isFinite(amount)||!d)return null;const cl=classify(title,amount);return{title,amount,date:d.toISOString().slice(0,10),cat:cl.category,type:cl.type,budgetEffect:cl.budgetEffect,confidence:cl.confidence,source:'csv',file:fileName,row:i}}).filter(Boolean)};
+window.analyseRows=function(rows){const budgetRows=rows.filter(r=>r.budgetEffect!==false),months=Math.max(1,new Set(rows.map(r=>r.date.slice(0,7))).size),incomes=budgetRows.filter(r=>r.type==='income'||r.type==='refund'),expenses=budgetRows.filter(r=>r.type==='expense'),byMonth={};incomes.forEach(r=>byMonth[r.date.slice(0,7)]=(byMonth[r.date.slice(0,7)]||0)+Math.abs(r.amount));const vals=Object.values(byMonth),monthlyIncome=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:0,fixedCats=new Set(['Gesundheit / Versicherung','Telekom / Abos / Digital','Steuern / Gemeinde','Kreditkarte (Cembra)']);let fixed=expenses.filter(r=>fixedCats.has(r.cat)).reduce((s,r)=>s+Math.abs(r.amount),0)/months;const catTotals={};expenses.filter(r=>!fixedCats.has(r.cat)).forEach(r=>catTotals[r.cat]=(catTotals[r.cat]||0)+Math.abs(r.amount)/months);const budgets=Object.entries(catTotals).filter(([,v])=>v>=15).sort((a,b)=>b[1]-a[1]).map(([name,v])=>({name,limit:Math.ceil(v/50)*50})),excluded=rows.filter(r=>r.budgetEffect===false),counts=rows.reduce((a,r)=>(a[r.type]=(a[r.type]||0)+1,a),{});return{rows,months,monthlyIncome:Math.round(monthlyIncome),fixed:Math.round(fixed),saving:Math.round(excluded.filter(r=>r.type==='saving').reduce((s,r)=>s+Math.abs(r.amount),0)/months),budgets:budgets.length?budgets:defaultBudgets,fixedRows:[],excluded,counts}};
+const oldShow=window.showSetupReview;window.showSetupReview=function(){oldShow();const a=setupAnalysis;if(!a)return;document.getElementById('setupCategories').insertAdjacentHTML('afterbegin',`<div class="info-note"><strong>Smart Import 2.0</strong><br>${a.counts.income||0} Einnahmen · ${a.counts.expense||0} Ausgaben · ${a.counts.saving||0} Sparbuchungen · ${a.counts.transfer||0} Transfers · ${a.counts.investment||0} Anlagen<br><b>${a.excluded.length} Buchungen</b> werden separat geführt und verzerren das Budget nicht.</div>`)};
 const oldFinish=window.finishSetup;window.finishSetup=function(){if(setupAnalysis){const excluded=setupAnalysis.rows.filter(r=>r.budgetEffect===false);localStorage.setItem('bq_transfer_ledger',JSON.stringify(excluded));setupAnalysis.rows=setupAnalysis.rows.filter(r=>r.budgetEffect!==false)}oldFinish()};
 const oldRead=window.readCsvFiles;window.readCsvFiles=async function(files){await oldRead(files);const excluded=csvRows.filter(r=>r.budgetEffect===false),included=csvRows.filter(r=>r.budgetEffect!==false);window.__bqExcluded=excluded;csvRows=included;const counts=[...included,...excluded].reduce((a,r)=>(a[r.type]=(a[r.type]||0)+1,a),{});document.getElementById('csvStatus').innerHTML=`<strong>${included.length} budgetwirksame Buchungen</strong><br>${counts.income||0} Einnahmen · ${counts.expense||0} Ausgaben<br>${excluded.length} Transfers/Sparen/Anlagen werden separat geführt.`};
 const oldImport=window.importCsv;window.importCsv=function(){const ledger=JSON.parse(localStorage.getItem('bq_transfer_ledger')||'[]');if(window.__bqExcluded?.length)localStorage.setItem('bq_transfer_ledger',JSON.stringify(ledger.concat(window.__bqExcluded)));oldImport();window.__bqExcluded=[]};
