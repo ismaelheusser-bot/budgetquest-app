@@ -12,20 +12,43 @@ let bonusRiskFactor=Math.min(100,Math.max(0,Number(localStorage.getItem(RISK_KEY
 const fmt=v=>'CHF '+Number(v||0).toLocaleString('de-CH',{maximumFractionDigits:2});
 const esc2=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 const isBonus=x=>/bonus|prämie|provision|erfolgsbeteiligung/i.test(String(x?.name||''));
-function personTotals(p){const regular=p.sources.reduce((s,x)=>s+(+x.monthly||0),0),annualSafe=p.annual.reduce((s,x)=>s+(+x.amount||0)*(isBonus(x)?bonusRiskFactor/100:1),0),annualRaw=p.annual.reduce((s,x)=>s+(+x.amount||0),0);return{regular,annualSafe,annualRaw,monthlyEquivalent:regular+annualSafe/12,year:regular*12+annualSafe}}
-function householdTotals(){const t=plan.people.map(personTotals),regular=t.reduce((s,x)=>s+x.regular,0),annualSafe=t.reduce((s,x)=>s+x.annualSafe,0),annualRaw=t.reduce((s,x)=>s+x.annualRaw,0);return{regular,annualSafe,annualRaw,monthlyEquivalent:regular+annualSafe/12}}
+function personTotals(p){
+ const regular=p.sources.reduce((s,x)=>s+(+x.monthly||0),0);
+ const annualRaw=p.annual.reduce((s,x)=>s+(+x.amount||0),0);
+ const bonusRaw=p.annual.filter(isBonus).reduce((s,x)=>s+(+x.amount||0),0);
+ const fixedAnnual=p.annual.filter(x=>!isBonus(x)).reduce((s,x)=>s+(+x.amount||0),0);
+ const bonusSafe=bonusRaw*bonusRiskFactor/100;
+ const annualSafe=fixedAnnual+bonusSafe;
+ return{regular,annualSafe,annualRaw,bonusRaw,bonusSafe,fixedAnnual,monthlyEquivalent:regular+annualSafe/12,yearRaw:regular*12+annualRaw,yearSafe:regular*12+annualSafe};
+}
+function householdTotals(){
+ const t=plan.people.map(personTotals);
+ return{
+  regular:t.reduce((s,x)=>s+x.regular,0),
+  annualSafe:t.reduce((s,x)=>s+x.annualSafe,0),
+  annualRaw:t.reduce((s,x)=>s+x.annualRaw,0),
+  bonusRaw:t.reduce((s,x)=>s+x.bonusRaw,0),
+  bonusSafe:t.reduce((s,x)=>s+x.bonusSafe,0),
+  yearRaw:t.reduce((s,x)=>s+x.yearRaw,0),
+  yearSafe:t.reduce((s,x)=>s+x.yearSafe,0),
+  monthlyEquivalent:t.reduce((s,x)=>s+x.monthlyEquivalent,0)
+ };
+}
 function syncBudgetIncome(){const total=householdTotals().monthlyEquivalent;if(typeof settings!=='undefined'){settings.income=Math.round(total*100)/100;localStorage.setItem('bq_settings',JSON.stringify(settings));const input=document.getElementById('incomeInput');if(input){input.value=settings.income;input.readOnly=true;input.title='Wird automatisch aus der Einkommensplanung berechnet.'}window.dispatchEvent(new Event('bq:income-updated'))}}
 function save(){localStorage.setItem(KEY,JSON.stringify(plan));localStorage.setItem(RISK_KEY,String(bonusRiskFactor));syncBudgetIncome();renderIncomePlanner();if(typeof render==='function')render()}
 function renderIncomePlanner(){const host=document.getElementById('incomePlanner');if(!host)return;const totals=plan.people.map(personTotals),all=householdTotals();
  host.innerHTML=`<div class="section-head"><div><h2>👤 Einkommensplanung</h2><div class="tiny">Das Budget-Einkommen wird daraus automatisch berechnet.</div></div></div>
- <div class="metric-grid"><div class="metric"><label>Regelmässig pro Monat</label><strong class="positive">${fmt(all.regular)}</strong></div><div class="metric"><label>Risikobereinigte Jahresbeträge</label><strong>${fmt(all.annualSafe)}</strong></div><div class="metric"><label>Budget-Einkommen pro Monat</label><strong class="positive">${fmt(all.monthlyEquivalent)}</strong></div></div>
+ <div class="metric-grid"><div class="metric"><label>Regelmässig pro Monat</label><strong class="positive">${fmt(all.regular)}</strong></div><div class="metric"><label>Jahresbruttolohn gesamt</label><strong>${fmt(all.yearRaw)}</strong></div><div class="metric"><label>Risikobereinigter Jahreslohn</label><strong>${fmt(all.yearSafe)}</strong></div><div class="metric"><label>Budget-Einkommen pro Monat</label><strong class="positive">${fmt(all.monthlyEquivalent)}</strong></div></div>
+ <div class="card section"><div class="section-head"><div><h3>Jahresübersicht Haushalt</h3><div class="tiny">Brutto vor Risikoabzug und konservativer Planungswert im Vergleich.</div></div></div><div class="budget-reality-grid"><div><span>Monatslöhne × 12</span><strong>${fmt(all.regular*12)}</strong></div><div><span>Bonus/variable Einkommen brutto</span><strong>${fmt(all.bonusRaw)}</strong></div><div><span>Bonus nach Risikoabzug</span><strong>${fmt(all.bonusSafe)}</strong></div><div><span>Jahresbruttolohn gesamt</span><strong>${fmt(all.yearRaw)}</strong></div></div></div>
  <div class="card section"><div class="section-head"><div><h3>Bonus-Sicherheitsfaktor</h3><div class="tiny">Nur Bonus, Prämien und Provisionen werden reduziert. Ein 13. Monatslohn wird zu 100 % berücksichtigt.</div></div><strong id="bonusRiskLabel">${bonusRiskFactor} %</strong></div><input id="bonusRiskFactor" type="range" min="0" max="100" step="5" value="${bonusRiskFactor}" style="width:100%"><div class="tiny">Beispiel: Bei 70 % werden von CHF 10’000 Bonus nur CHF 7’000 in der Jahresplanung berücksichtigt.</div></div>
  <div class="grid2 section">${plan.people.map((p,pi)=>{const t=totals[pi];return`<div class="card"><div class="section-head"><div><h3>${pi===0?'👨':'👩'} ${esc2(p.name)}</h3><div class="tiny">${fmt(t.regular)} regelmässig · ${fmt(t.monthlyEquivalent)} Ø pro Monat</div></div></div>
+ <div class="budget-reality-grid person-year-grid"><div><span>Jahresbruttolohn</span><strong>${fmt(t.yearRaw)}</strong></div><div><span>Risikobereinigt</span><strong>${fmt(t.yearSafe)}</strong></div><div><span>Bonus brutto</span><strong>${fmt(t.bonusRaw)}</strong></div><div><span>Bonus berücksichtigt</span><strong>${fmt(t.bonusSafe)}</strong></div></div>
  <h4>Regelmässige Einkommen</h4>${p.sources.map((x,si)=>`<div class="category-review"><div><strong>${esc2(x.name)}</strong><div class="tiny">${esc2(x.type||'Einkommen')}</div></div><div><input style="max-width:130px" type="number" step="1" value="${+x.monthly||0}" onchange="updateIncomeSource(${pi},${si},this.value)"><button class="text-btn" onclick="removeIncomeSource(${pi},${si})">Löschen</button></div></div>`).join('')}
  <button class="btn secondary" onclick="addIncomeSource(${pi})">+ Einkommensquelle</button>
  <h4 class="section">Variable/Jährliche Einkommen</h4>${p.annual.map((x,ai)=>`<div class="category-review"><div><strong>${esc2(x.name)}</strong><div class="tiny">Auszahlung Monat ${x.month||12}${isBonus(x)?` · ${bonusRiskFactor} % berücksichtigt`:' · 100 % berücksichtigt'}</div></div><div><input style="max-width:130px" type="number" step="1" value="${+x.amount||0}" onchange="updateAnnualIncome(${pi},${ai},this.value)"><button class="text-btn" onclick="removeAnnualIncome(${pi},${ai})">Löschen</button></div></div>`).join('')}
  <button class="btn secondary" onclick="addAnnualIncome(${pi})">+ Bonus / 13. Monatslohn</button></div>`}).join('')}</div>`;
  const slider=document.getElementById('bonusRiskFactor');if(slider)slider.oninput=()=>{bonusRiskFactor=Number(slider.value);document.getElementById('bonusRiskLabel').textContent=bonusRiskFactor+' %';save()};
+ if(!document.getElementById('incomePlannerYearStyles')){const st=document.createElement('style');st.id='incomePlannerYearStyles';st.textContent='.person-year-grid{grid-template-columns:repeat(2,minmax(0,1fr));margin-bottom:16px}@media(max-width:720px){#incomePlanner>.metric-grid{grid-template-columns:1fr 1fr}.person-year-grid{grid-template-columns:1fr 1fr}}';document.head.appendChild(st)}
 }
 window.updateIncomeSource=(pi,si,v)=>{plan.people[pi].sources[si].monthly=Math.max(0,+v||0);save()};
 window.updateAnnualIncome=(pi,ai,v)=>{plan.people[pi].annual[ai].amount=Math.max(0,+v||0);save()};
