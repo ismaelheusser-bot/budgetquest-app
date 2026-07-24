@@ -35,4 +35,4 @@ window.renderTransactions=function(){originalRenderTransactions();document.query
 const originalSaveAll=window.saveAll;
 window.saveAll=function(){originalSaveAll();saveProfiles()};
 renderProfiles();render();
-const proScript=document.createElement('script');proScript.src='pro.js?v=11';document.body.appendChild(proScript);
+const proScript=document.createElement('script');proScript.src='pro.js?v=12';document.body.appendChild(proScript);
