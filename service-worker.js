@@ -1,4 +1,4 @@
-const CACHE_NAME='budgetquest-v45';
+const CACHE_NAME='budgetquest-v46';
 const APP_SHELL=['./','./index.html','./style.css','./mobile-fix.css','./nav-six-tabs-v23.css','./app.js','./smart-import.js','./pdf-import-override.js','./profiles.js','./pro.js','./pro.css','./home.js','./income-planner.js','./transaction-controls.js','./install.js','./gesture-lock.js','./assistant.js','./savings-integration.js','./planning-extension.js','./manifest.webmanifest','./icon.svg'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE_NAME).then(cache=>cache.addAll(APP_SHELL)));self.skipWaiting()});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE_NAME).map(key=>caches.delete(key)))));self.clients.claim()});
