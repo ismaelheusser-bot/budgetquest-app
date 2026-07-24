@@ -86,4 +86,12 @@ window.importCsv=function(){
  if(Array.isArray(csvRows))csvRows=csvRows.filter(inCurrentBudget);
  return importCsvWithDateFilter.apply(this,arguments);
 };
+
+// Sichtbare Löschfunktionen für einzelne oder alle Buchungen nachladen.
+if(!document.querySelector('script[data-bq-reset-controls]')){
+ const script=document.createElement('script');
+ script.src='reset-controls.js?v=18';
+ script.dataset.bqResetControls='1';
+ document.body.appendChild(script);
+}
 })();
