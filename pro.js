@@ -2,7 +2,6 @@
 const q=s=>document.querySelector(s), money=v=>'CHF '+Math.round(Number(v||0)).toLocaleString('de-CH');
 const defaults={cash:85000,pillar3a:118000,etf:64000,stocks:18000,crypto:0,other:0};
 let wealth={...defaults,...JSON.parse(localStorage.getItem('bq_wealth')||'{}')};
-const link=document.createElement('link');link.rel='stylesheet';link.href='pro.css?v=12';document.head.appendChild(link);
 function inject(){
  const nav=q('.nav');
  if(nav){nav.querySelector('[data-target="wealth"]')?.remove();nav.style.removeProperty('grid-template-columns')}
