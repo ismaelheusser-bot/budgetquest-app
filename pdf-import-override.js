@@ -6,6 +6,30 @@
   let queue=[];
   let busy=false;
 
+  function formatReceiptAmount(value){
+    const amount=typeof value==='number'?value:parseAmount(value);
+    return Number.isFinite(amount)&&amount>0?amount.toFixed(2):'';
+  }
+
+  function applySwissReceiptFormat(){
+    const input=document.getElementById('receiptAmount');
+    if(!input)return;
+    input.step='0.01';
+    input.inputMode='decimal';
+    if(input.value)input.value=formatReceiptAmount(input.value);
+  }
+
+  function setupReceiptAmountFormatting(){
+    const input=document.getElementById('receiptAmount');
+    const form=document.getElementById('receiptForm');
+    if(!input||!form||input.dataset.swissAmount==='1')return;
+    input.dataset.swissAmount='1';
+    input.step='0.01';
+    input.inputMode='decimal';
+    input.addEventListener('blur',applySwissReceiptFormat);
+    new MutationObserver(()=>{if(!form.hidden)applySwissReceiptFormat()}).observe(form,{attributes:true,attributeFilter:['hidden']});
+  }
+
   async function loadPdf(){
     const pdfjs=await import(PDF_MODULE);
     pdfjs.GlobalWorkerOptions.workerSrc=PDF_WORKER;
@@ -39,7 +63,7 @@
       const result=await Tesseract.recognize(canvas,'deu');
       const detected=extractFast(result.data.text);
       document.getElementById('receiptMerchant').value=detected.merchant;
-      document.getElementById('receiptAmount').value=detected.amount||'';
+      document.getElementById('receiptAmount').value=formatReceiptAmount(detected.amount);
       document.getElementById('receiptCategory').value=budgets.some(b=>b.name===detected.cat)?detected.cat:(budgets[0]?.name||'');
       form.hidden=false;
       status.textContent=detected.amount?'Erkannt – bitte prüfen und übernehmen.':'Betrag nicht sicher erkannt – bitte ergänzen.';
@@ -67,4 +91,7 @@
     if(images.length&&typeof originalImport==='function')originalImport(images);
     if(pdfs.length){queue.push(...pdfs);runQueue();}
   };
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',setupReceiptAmountFormatting);
+  else setupReceiptAmountFormatting();
 })();
