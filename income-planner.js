@@ -24,8 +24,42 @@ window.updateIncomeSource=(pi,si,v)=>{plan.people[pi].sources[si].monthly=Math.m
 window.updateAnnualIncome=(pi,ai,v)=>{plan.people[pi].annual[ai].amount=Math.max(0,+v||0);save()};
 window.removeIncomeSource=(pi,si)=>{plan.people[pi].sources.splice(si,1);save()};
 window.removeAnnualIncome=(pi,ai)=>{plan.people[pi].annual.splice(ai,1);save()};
-window.addIncomeSource=pi=>{const name=prompt('Einkommensquelle / Arbeitgeber');if(!name)return;const amount=+prompt('Monatlicher Nettobetrag in CHF','0');plan.people[pi].sources.push({name,monthly:Math.max(0,amount||0),type:'Einkommen'});save()};
+window.addIncomeSource=pi=>{const name=prompt('Einkommensquelle / Arbeitgeber');if(!name)return;const amount=+prompt('Monatlicher Nettobetrag in CHF','0');plan.people[pi].sources.push({name,monthly:Math.max(0,amount||0),type:'Lohn'});save()};
 window.addAnnualIncome=pi=>{const name=prompt('Bezeichnung, z. B. Bonus oder 13. Monatslohn','Jährlicher Bonus');if(!name)return;const amount=+prompt('Jährlicher Betrag in CHF','0'),month=Math.min(12,Math.max(1,+prompt('Auszahlungsmonat 1–12','12')||12));plan.people[pi].annual.push({name,amount:Math.max(0,amount||0),month});save()};
 window.getBudgetQuestIncomePlan=()=>plan;
 const budget=document.getElementById('budget');if(budget){const host=document.createElement('div');host.id='incomePlanner';host.className='section';budget.appendChild(host);renderIncomePlanner()}
+
+let manualMode=false;
+const step2=document.querySelector('.wizard-step[data-step="2"]');
+if(step2){
+ const actions=step2.querySelector('.wizard-actions');
+ const manual=document.createElement('button');
+ manual.type='button';manual.className='btn secondary';manual.textContent='Ohne Import manuell einrichten';manual.onclick=()=>window.startManualSetup();
+ actions?.insertBefore(manual,actions.lastElementChild);
+ const note=document.createElement('p');note.className='tiny';note.textContent='Der CSV-Import ist optional. Bei ungenauen Bankdaten kannst du Löhne, Fixkosten und Sparziel vollständig selbst eintragen.';
+ step2.insertBefore(note,actions);
+}
+function manualIncomeTotal(){return plan.people.reduce((sum,p)=>sum+p.sources.reduce((s,x)=>s+(+x.monthly||0),0),0)}
+window.startManualSetup=()=>{
+ manualMode=true;
+ const income=document.getElementById('setupIncome'),fixed=document.getElementById('setupFixed'),saving=document.getElementById('setupSaving'),cats=document.getElementById('setupCategories');
+ income.value=manualIncomeTotal();
+ fixed.value=Number(JSON.parse(localStorage.getItem('bq_settings')||'null')?.fixed||0);
+ saving.value=Number(JSON.parse(localStorage.getItem('bq_settings')||'null')?.saving||0);
+ cats.innerHTML=`<div class="info-note"><strong>Manuelle Einrichtung</strong><br>Es werden keine Bankbuchungen importiert. Trage die drei Monatswerte oben selbst ein. Die Löhne kannst du nach dem Öffnen des Dashboards unter <b>Budget → Einkommensplanung</b> getrennt für Ismael und Sarah bearbeiten.</div>
+ <div class="category-review"><span>👨 Ismael Heusser</span><strong>${fmt(personTotals(plan.people[0]).regular)}/Monat</strong></div>
+ <div class="category-review"><span>👩 Sarah Heusser</span><strong>${fmt(personTotals(plan.people[1]).regular)}/Monat</strong></div>
+ <div class="tiny" style="margin-top:12px">Fixkosten werden hier als Monatsgesamtbetrag eingetragen. Einzelne Budgetkategorien lassen sich anschliessend jederzeit ergänzen.</div>`;
+ const title=document.querySelector('.wizard-step[data-step="4"] h1');if(title)title.textContent='Budget manuell einrichten';
+ const p=document.querySelector('.wizard-step[data-step="4"] > p');if(p)p.textContent='Bitte trage deine Monatswerte ein. Du kannst alles später ändern.';
+ window.setupNext(4);
+};
+const originalFinish=window.finishSetup;
+window.finishSetup=function(){
+ if(!manualMode)return originalFinish();
+ const household=(document.getElementById('setupHousehold').value||'Unser Haushalt').trim();
+ const settings={income:+document.getElementById('setupIncome').value||0,fixed:+document.getElementById('setupFixed').value||0,saving:+document.getElementById('setupSaving').value||0};
+ localStorage.setItem('bq_household',household);localStorage.setItem('bq_settings',JSON.stringify(settings));localStorage.setItem(KEY,JSON.stringify(plan));localStorage.setItem('bq_setup_done','1');
+ document.getElementById('setupWizard').hidden=true;location.reload();
+};
 })();
