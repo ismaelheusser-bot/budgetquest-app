@@ -1,5 +1,6 @@
 const profileDefaults=[{id:'isme',name:'Ismael',emoji:'👤'},{id:'partner',name:'Partnerin',emoji:'👤'}];
 const BQ_SHARED_FILE_VERSION=20;
+const BQ_DEFAULT_CLOUD_FILE='BudgetQuest-Familie-Heusser.json';
 let householdProfiles=JSON.parse(localStorage.getItem('bq_profiles')||'null')||profileDefaults;
 let activeProfileId=localStorage.getItem('bq_active_profile')||householdProfiles[0].id;
 
@@ -17,6 +18,26 @@ function switchProfile(id){activeProfileId=id;saveProfiles();renderProfiles();pr
 function addProfile(e){e.preventDefault();const name=document.getElementById('profileName').value.trim();if(!name)return;const id='p'+Date.now().toString(36);householdProfiles.push({id,name,emoji:'👤'});activeProfileId=id;saveProfiles();e.target.reset();renderProfiles();render()}
 function renameHousehold(){const value=prompt('Name des Haushalts',household);if(value&&value.trim()){household=value.trim();saveAll();render()}}
 
+function cloudSettings(){
+ return{
+  folder:localStorage.getItem('bq_icloud_folder')||'iCloud Drive/BudgetQuest',
+  filename:localStorage.getItem('bq_icloud_filename')||BQ_DEFAULT_CLOUD_FILE
+ };
+}
+function cleanCloudFilename(value){
+ let name=(value||BQ_DEFAULT_CLOUD_FILE).trim().replace(/[\\/:*?"<>|]+/g,'-');
+ if(!name.toLowerCase().endsWith('.json'))name+='.json';
+ return name||BQ_DEFAULT_CLOUD_FILE;
+}
+function saveCloudSettings(e){
+ if(e)e.preventDefault();
+ const folder=(document.getElementById('icloudFolder')?.value||'iCloud Drive/BudgetQuest').trim();
+ const filename=cleanCloudFilename(document.getElementById('icloudFilename')?.value);
+ localStorage.setItem('bq_icloud_folder',folder);
+ localStorage.setItem('bq_icloud_filename',filename);
+ const fileInput=document.getElementById('icloudFilename');if(fileInput)fileInput.value=filename;
+ setCloudStatus(`Gespeichert: ${folder} / ${filename}`);
+}
 function nextSharedRevision(){return Number(localStorage.getItem('bq_shared_revision')||0)+1}
 function householdBackupData(revision=nextSharedRevision()){
  const editor=activeProfile();
@@ -31,27 +52,27 @@ function householdBackupData(revision=nextSharedRevision()){
  };
 }
 function backupFile(data){
- const safe=(household||'Haushalt').replace(/[^a-z0-9äöü]+/gi,'-').replace(/^-|-$/g,'');
- const d=new Date(),pad=n=>String(n).padStart(2,'0');
- const stamp=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}`;
- return new File([JSON.stringify(data,null,2)],`BudgetQuest-${safe}-V${BQ_SHARED_FILE_VERSION}-R${data.revision}-${stamp}.json`,{type:'application/json'});
+ const filename=cleanCloudFilename(cloudSettings().filename);
+ return new File([JSON.stringify(data,null,2)],filename,{type:'application/json'});
 }
 function setCloudStatus(text,isError=false){const el=document.getElementById('icloudStatus');if(el){el.textContent=text;el.style.color=isError?'#ff8d8d':''}}
 async function saveHouseholdToICloud(){
+ saveCloudSettings();
  const revision=nextSharedRevision();
  const data=householdBackupData(revision);
  const file=backupFile(data);
- setCloudStatus(`Version ${BQ_SHARED_FILE_VERSION}, Stand ${revision} wird vorbereitet…`);
+ const cfg=cloudSettings();
+ setCloudStatus(`Stand ${revision} wird für ${cfg.filename} vorbereitet…`);
  try{
   if(navigator.share&&(!navigator.canShare||navigator.canShare({files:[file]}))){
-   await navigator.share({title:`BudgetQuest V${BQ_SHARED_FILE_VERSION} – ${household}`,text:'Gemeinsame BudgetQuest-Datei. In den freigegebenen iCloud-Drive-Ordner sichern.',files:[file]});
+   await navigator.share({title:`BudgetQuest V${BQ_SHARED_FILE_VERSION} – ${household}`,text:`In ${cfg.folder} speichern und die vorhandene Datei ersetzen.`,files:[file]});
   }else{
    const a=document.createElement('a'),url=URL.createObjectURL(file);a.href=url;a.download=file.name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
   localStorage.setItem('bq_shared_revision',String(revision));
   localStorage.setItem('bq_last_cloud_backup',data.exportedAt);
   localStorage.setItem('bq_last_cloud_editor',data.editedBy.name);
-  setCloudStatus(`Stand ${revision} von ${data.editedBy.name} erstellt. In „Dateien“ unter iCloud Drive speichern.`);
+  setCloudStatus(`Stand ${revision} von ${data.editedBy.name} erstellt. In ${cfg.folder} speichern und ${cfg.filename} ersetzen.`);
  }catch(err){
   if(err?.name==='AbortError'){setCloudStatus('Sicherung abgebrochen.');return}
   setCloudStatus('Sicherung nicht möglich: '+err.message,true);
@@ -85,6 +106,7 @@ async function importHousehold(file){
   localStorage.setItem('bq_shared_revision',String(revision));
   localStorage.setItem('bq_last_cloud_restore',new Date().toISOString());
   localStorage.setItem('bq_last_cloud_editor',editor);
+  localStorage.setItem('bq_icloud_filename',cleanCloudFilename(file.name));
   saveProfiles();saveAll();renderProfiles();render();
   setCloudStatus(`Stand ${revision||'?'} von ${editor} geladen.`);
   profileDialog.close();
@@ -98,7 +120,8 @@ function installICloudControls(){
  const last=localStorage.getItem('bq_last_cloud_backup');
  const revision=localStorage.getItem('bq_shared_revision')||'0';
  const editor=localStorage.getItem('bq_last_cloud_editor')||activeProfile()?.name||'';
- box.innerHTML=`<strong>☁️ Gemeinsame iCloud-Datei · Version ${BQ_SHARED_FILE_VERSION}</strong><p>Du und Sarah könnt denselben Budgetstand abwechselnd öffnen, bearbeiten und wieder in einem freigegebenen iCloud-Drive-Ordner speichern.</p><div class="actions"><button class="btn" type="button" onclick="saveHouseholdToICloud()">Aktuellen Stand speichern</button><button class="btn secondary" type="button" onclick="chooseICloudBackup()">Gemeinsamen Stand öffnen</button></div><input id="icloudImportInput" type="file" accept="application/json,.json" hidden onchange="importHousehold(this.files[0])"><div id="icloudStatus" class="tiny" style="margin-top:10px">${last?`Stand ${revision} · ${editor} · ${new Date(last).toLocaleString('de-CH')}`:'Noch keine gemeinsame Datei gespeichert.'}</div><p class="tiny"><b>Ablauf:</b> Vor dem Bearbeiten immer zuerst den neuesten Stand öffnen. Danach speichern und in „Dateien“ den gemeinsamen iCloud-Ordner wählen. Die Dateinamen enthalten Version, Stand und Zeitpunkt; ältere Dateien bleiben als Sicherung erhalten.</p><p class="tiny">Hinweis: Das ist ein sicherer manueller Dateiaustausch, keine automatische Live-Synchronisation. Bearbeitet nicht gleichzeitig auf zwei Geräten.</p>`;
+ const cfg=cloudSettings();
+ box.innerHTML=`<strong>☁️ Gemeinsame iCloud-Datei · Version ${BQ_SHARED_FILE_VERSION}</strong><p>Lege den gewünschten Ordner und Dateinamen fest. Die App merkt sich diese Angaben. iOS öffnet beim Laden und Speichern weiterhin die sichere Dateien-Auswahl.</p><form class="form section" onsubmit="saveCloudSettings(event)"><label>iCloud-Ordner (Merkhilfe)<input id="icloudFolder" value="${esc(cfg.folder)}" placeholder="iCloud Drive/BudgetQuest"></label><label>Gemeinsamer Dateiname<input id="icloudFilename" value="${esc(cfg.filename)}" placeholder="BudgetQuest-Familie-Heusser.json"></label><button class="btn secondary" type="submit">Einstellungen merken</button></form><div class="actions"><button class="btn" type="button" onclick="saveHouseholdToICloud()">Aktuellen Stand speichern</button><button class="btn secondary" type="button" onclick="chooseICloudBackup()">Gemeinsamen Stand öffnen</button></div><input id="icloudImportInput" type="file" accept="application/json,.json" hidden onchange="importHousehold(this.files[0])"><div id="icloudStatus" class="tiny" style="margin-top:10px">${last?`Stand ${revision} · ${editor} · ${new Date(last).toLocaleString('de-CH')}`:'Noch keine gemeinsame Datei gespeichert.'}</div><p class="tiny"><b>Ablauf:</b> Beide verwenden denselben freigegebenen iCloud-Ordner und denselben Dateinamen. Vor dem Bearbeiten zuerst öffnen, danach speichern und die bestehende Datei ersetzen.</p><p class="tiny">Apple-ID und Passwort werden nicht abgefragt oder gespeichert. Eine Web-App darf aus Sicherheitsgründen nicht direkt auf dein iCloud-Konto zugreifen.</p>`;
 }
 
 const originalAddTransaction=window.addTransaction;
@@ -110,4 +133,4 @@ window.renderTransactions=function(){originalRenderTransactions();document.query
 const originalSaveAll=window.saveAll;
 window.saveAll=function(){originalSaveAll();saveProfiles()};
 renderProfiles();render();installICloudControls();
-const proScript=document.createElement('script');proScript.src='pro.js?v=29';document.body.appendChild(proScript);
+const proScript=document.createElement('script');proScript.src='pro.js?v=30';document.body.appendChild(proScript);
