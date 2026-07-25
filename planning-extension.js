@@ -2,6 +2,7 @@
  const SCHOOL_KEY='bq_private_school_monthly';
  const money=v=>'CHF '+Number(v||0).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2});
  const schoolCost=()=>Math.max(0,Number(localStorage.getItem(SCHOOL_KEY)||0));
+ let receiptScanGeneration=0;
 
  function migrateSarahProfile(){
   if(typeof householdProfiles!=='undefined'&&Array.isArray(householdProfiles)){
@@ -67,9 +68,60 @@
   makeCollapsible(homeCard,'Eigenheim-Angaben',()=>`Eigenkapital ${homeMoney(typeof homePlan!=='undefined'?homePlan.equity:0)} · Sparen ${homeMoney(typeof homePlan!=='undefined'?homePlan.monthlySaving:0)}/Monat`);
  }
 
- function renderExtension(){migrateSarahProfile();restoreThreeYearHomeView();ensureSchoolInput();ensureOtherCollapsibles();}
+ function resetReceiptImportState(){
+  receiptScanGeneration++;
+  const input=document.getElementById('receiptCameraInput');
+  if(input)input.value='';
+  const preview=document.getElementById('receiptPreview');
+  if(preview?.src?.startsWith('blob:'))URL.revokeObjectURL(preview.src);
+  if(preview){preview.hidden=true;preview.removeAttribute('src')}
+  const previewBox=document.getElementById('receiptPreviewBox');
+  if(previewBox)previewBox.hidden=true;
+  const form=document.getElementById('receiptForm');
+  if(form){form.reset();form.hidden=true}
+  const merchant=document.getElementById('receiptMerchant');if(merchant)merchant.value='';
+  const amount=document.getElementById('receiptAmount');if(amount)amount.value='';
+  const status=document.getElementById('receiptStatus');if(status)status.textContent='Noch kein Beleg.';
+ }
+
+ function ensureReceiptRemoveButton(){
+  const preview=document.getElementById('receiptPreview');
+  if(!preview||document.getElementById('receiptPreviewBox'))return;
+  const box=document.createElement('div');box.id='receiptPreviewBox';box.className='receipt-preview-box';box.hidden=preview.hidden;
+  preview.before(box);box.appendChild(preview);
+  const remove=document.createElement('button');
+  remove.type='button';remove.id='removeReceiptImage';remove.className='receipt-remove';remove.setAttribute('aria-label','Importiertes Foto entfernen');remove.textContent='×';
+  remove.onclick=resetReceiptImportState;box.appendChild(remove);
+  const observer=new MutationObserver(()=>{box.hidden=preview.hidden||!preview.getAttribute('src')});
+  observer.observe(preview,{attributes:true,attributeFilter:['hidden','src']});
+ }
+
+ function ensureQuickImportActions(){
+  const form=document.querySelector('#txDialog form');
+  if(!form||document.getElementById('quickImportActions'))return;
+  const title=form.querySelector('h3');
+  const actions=document.createElement('div');actions.id='quickImportActions';actions.className='quick-import-actions';
+  actions.innerHTML='<button type="button" class="btn" id="quickReceiptImport">📷 Beleg scannen</button><button type="button" class="btn secondary" id="quickCsvImport">📄 CSV importieren</button><div class="quick-import-divider"><span>oder manuell erfassen</span></div>';
+  title?.after(actions);
+  document.getElementById('quickReceiptImport').onclick=()=>{document.getElementById('txDialog')?.close();resetReceiptImportState();document.getElementById('receiptDialog')?.showModal()};
+  document.getElementById('quickCsvImport').onclick=()=>{document.getElementById('txDialog')?.close();document.getElementById('csvDialog')?.showModal()};
+ }
+
+ function wrapReceiptScanner(){
+  if(typeof window.scanReceipt!=='function'||window.scanReceipt.__removeWrapped)return;
+  const original=window.scanReceipt;
+  const wrapped=async function(file){
+   const generation=++receiptScanGeneration;
+   const box=document.getElementById('receiptPreviewBox');if(box)box.hidden=!file;
+   await original(file);
+   if(generation!==receiptScanGeneration)resetReceiptImportState();
+  };
+  wrapped.__removeWrapped=true;window.scanReceipt=wrapped;
+ }
+
+ function renderExtension(){migrateSarahProfile();restoreThreeYearHomeView();ensureSchoolInput();ensureOtherCollapsibles();ensureReceiptRemoveButton();ensureQuickImportActions();wrapReceiptScanner()}
  const style=document.createElement('style');
- style.textContent='.collapsible-head{width:100%;display:flex;justify-content:space-between;align-items:center;background:transparent;border:0;color:inherit;padding:0;text-align:left}.collapsible-head span{display:grid;gap:4px}.collapsible-summary{color:var(--muted);font-size:12px}.collapsed .collapsible-body{display:none}.collapsed{padding-bottom:16px}';
+ style.textContent='.collapsible-head{width:100%;display:flex;justify-content:space-between;align-items:center;background:transparent;border:0;color:inherit;padding:0;text-align:left}.collapsible-head span{display:grid;gap:4px}.collapsible-summary{color:var(--muted);font-size:12px}.collapsed .collapsible-body{display:none}.collapsed{padding-bottom:16px}.receipt-preview-box{position:relative;margin-top:10px}.receipt-preview-box[hidden]{display:none}.receipt-preview-box .receipt-preview{margin-top:0}.receipt-remove{position:absolute;z-index:2;top:8px;right:8px;width:38px;height:38px;border:1px solid #ffffff55;border-radius:50%;background:#08111fd9;color:#fff;font-size:28px;line-height:32px;font-weight:500;display:grid;place-items:center;box-shadow:0 4px 14px #0008;cursor:pointer}.quick-import-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px}.quick-import-divider{grid-column:1/-1;display:flex;align-items:center;gap:10px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin:3px 0}.quick-import-divider:before,.quick-import-divider:after{content:"";height:1px;background:var(--line);flex:1}@media(max-width:420px){.quick-import-actions{grid-template-columns:1fr}}';
  document.head.appendChild(style);
  const start=()=>{renderExtension();const original=window.render;if(typeof original==='function'&&!original.__planningWrapped){const wrapped=function(){original();renderExtension()};wrapped.__planningWrapped=true;window.render=wrapped}window.addEventListener('bq:savings-updated',renderExtension);window.addEventListener('bq:fixed-costs-updated',renderExtension);window.addEventListener('bq:income-updated',renderExtension)};
  document.readyState==='loading'?document.addEventListener('DOMContentLoaded',start):start();
