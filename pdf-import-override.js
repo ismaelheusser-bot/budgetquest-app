@@ -92,6 +92,14 @@
     if(pdfs.length){queue.push(...pdfs);runQueue();}
   };
 
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',setupReceiptAmountFormatting);
-  else setupReceiptAmountFormatting();
+  function loadReceiptLearning(){
+    if(document.querySelector('script[data-receipt-learning]'))return;
+    const script=document.createElement('script');
+    script.src='./receipt-learning.js?v=1';
+    script.dataset.receiptLearning='1';
+    document.head.appendChild(script);
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{setupReceiptAmountFormatting();loadReceiptLearning()});
+  else{setupReceiptAmountFormatting();loadReceiptLearning()}
 })();
